@@ -11,6 +11,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.distributions.categorical import Categorical
+
+# continuous action
+from torch.distributions.normal import Normal
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -34,10 +37,10 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.constant_(layer.bias, bias_const)
     return layer
 
-
-class Agent(nn.Module):
+# descrete
+class AgentD(nn.Module):
     def __init__(self, envs):
-        super(Agent, self).__init__()
+        super(AgentD, self).__init__()
         self.critic = nn.Sequential(
             layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)),
             nn.Tanh(),
@@ -64,6 +67,38 @@ class Agent(nn.Module):
         if action is None:
             action = probs.sample()
         return action, probs.log_prob(action), probs.entropy(), self.critic(x)
+    
+# Continuous action
+class AgentC(nn.Module):
+    def __init__(self, envs):
+        super(AgentC, self).__init__()
+        self.critic = nn.Sequential(
+            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, 1), std=1.0),
+        )
+        self.actor_mean = nn.Sequential(
+            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, np.prod(envs.single_action_space.shape)), std=0.01),
+        )
+        self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(envs.single_action_space.shape)))
+
+    def get_value(self, x):
+        return self.critic(x)
+
+    def get_action_and_value(self, x, action=None):
+        action_mean = self.actor_mean(x)
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
+        if action is None:
+            action = probs.sample()
+        return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(x)
 
 
 
@@ -86,21 +121,28 @@ if __name__ == "__main__":
 
     
 
-    envName = "CartPole-v1"
+    # envName = "CartPole-v1"
+    # discrete = True
+
+    envName = "Pusher-v4"
+    discrete = False
+
     seed = 1 
 
     # learning_rate = 0.00025
     learning_rate = 0.0003
-    total_timesteps = 350000
+    total_timesteps = 2000000
 
     capture_video = False
 
     # Algorithm specific arguments
     ##############
     #the number of parallel game environments
-    num_envs = 4
+    # num_envs = 4
+    num_envs = 1
     #the number of steps to run in each environment per policy rollout
-    num_steps = 128
+    # num_steps = 128
+    num_steps = 2048
     #Toggle learning rate annealing for policy and value networks
     anneal_lr = True
     # Use GAE for advantage computation
@@ -110,9 +152,10 @@ if __name__ == "__main__":
     #the lambda for the general advantage estimation
     gae_lambda = 0.95
     #the number of mini-batches
-    num_minibatches = 4
+    num_minibatches = 32
     #the K epochs to update the policy
-    update_epochs = 4
+    # update_epochs = 4
+    update_epochs = 10
     #Toggles advantages normalization
     norm_adv = True
     #the surrogate clipping coefficient
@@ -120,7 +163,8 @@ if __name__ == "__main__":
     #Toggles whether or not to use a clipped loss for the value function, as per the paper.
     clip_vloss = True
     # coefficient of the entropy
-    ent_coef = 0.01
+    # ent_coef = 0.01
+    ent_coef = 0.0
     #coefficient of the value function
     vf_coef = 0.5
     # the maximum norm for the gradient clipping
@@ -157,9 +201,15 @@ if __name__ == "__main__":
     envs = gym.vector.SyncVectorEnv(
         [make_env(envName, seed + i, i, capture_video, run_name) for i in range(num_envs)]
     )
-    assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
+    if discrete:
+        assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
-    agent = Agent(envs).to(device)
+        agent = AgentD(envs).to(device)
+    else:
+        assert isinstance(envs.single_action_space, gym.spaces.Box), "only discrete action space is supported"
+
+        agent = AgentC(envs).to(device)
+
     # eps 1e-5 from orinial implementation
     optimizer = optim.Adam(agent.parameters(), lr=learning_rate, eps=1e-5)
 
@@ -269,7 +319,10 @@ if __name__ == "__main__":
                 mb_inds = b_inds[start:end]
 
                 # First foward pass of minibatch obs
-                _, newlogprob, entropy, newvalue = agent.get_action_and_value(b_obs[mb_inds], b_actions.long()[mb_inds])
+                if discrete:
+                    _, newlogprob, entropy, newvalue = agent.get_action_and_value(b_obs[mb_inds], b_actions.long()[mb_inds])
+                else:
+                    _, newlogprob, entropy, newvalue = agent.get_action_and_value(b_obs[mb_inds], b_actions[mb_inds])
                 logratio = newlogprob - b_logprobs[mb_inds]
                 ratio = logratio.exp()
 
