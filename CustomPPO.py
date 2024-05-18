@@ -16,6 +16,9 @@ from torch.distributions.categorical import Categorical
 from torch.distributions.normal import Normal
 from torch.utils.tensorboard import SummaryWriter
 
+#MultiProcess
+import concurrent.futures
+
 
 def make_env(gym_id, seed, idx, capture_video, run_name):
     def thunk():
@@ -37,7 +40,7 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.constant_(layer.bias, bias_const)
     return layer
 
-# descrete
+# descrete action
 class AgentD(nn.Module):
     def __init__(self, envs):
         super(AgentD, self).__init__()
@@ -102,37 +105,12 @@ class AgentC(nn.Module):
 
 
 
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-
-    # Help reproduce experiement?
-    parser.add_argument("--torch-deterministic", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
-        help="if toggled, `torch.backends.cudnn.deterministic=False`")
-    
-    # CUDA 
-    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
-        help="if toggled, cuda will be enabled by default")
-    
-    parser.add_argument("--capture-video", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
-        help="weather to capture videos of the agent performances (check out `videos` folder)")
-    
-
-    
-
-    # envName = "CartPole-v1"
-    # discrete = True
-
-    envName = "Pusher-v4"
-    discrete = False
-
-    seed = 1 
-
+def main(args, envName, discrete, seed, expNum):
     # learning_rate = 0.00025
     learning_rate = 0.0003
     total_timesteps = 2000000
 
+    # not implemented properly yet
     capture_video = False
 
     # Algorithm specific arguments
@@ -177,11 +155,11 @@ if __name__ == "__main__":
 
     minibatch_size = int(batch_size // num_minibatches)
 
-    args = parser.parse_args()
+    
     
     
 
-    run_name = f"{envName}__{seed}__{int(time.time())}"
+    run_name = f"{envName}__{seed}__{expNum}__{int(time.time())}"
 
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
@@ -383,3 +361,44 @@ if __name__ == "__main__":
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
         print("SPS:", int(global_step / (time.time() - start_time)))
         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+
+    # Help reproduce experiement?
+    parser.add_argument("--torch-deterministic", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+        help="if toggled, `torch.backends.cudnn.deterministic=False`")
+    
+    # CUDA 
+    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+        help="if toggled, cuda will be enabled by default")
+    
+    parser.add_argument("--capture-video", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+        help="weather to capture videos of the agent performances (check out `videos` folder)")
+    
+
+    args = parser.parse_args()
+
+    # envName = "CartPole-v1"
+    # discrete = True
+
+    envName = "Pusher-v4"
+    discrete = False
+
+    seed = 1 
+
+    # Uncomment and comment out MULTIPROCESSING with for single run
+    # expNum = 1
+    # main(args, envName, discrete, seed, expNum)
+
+
+    
+    # FOR MULTIPROCESSING 
+    totalRuns = 100
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(main, args, envName, discrete, seed, expNum) for expNum in range(totalRuns)]
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                future.result()  # Retrieve result or propagate exception
+            except Exception as e:
+                print(f"An experiment failed with error: {e}")
