@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 
 def plot_tensorboard_log(directories_with_labels):
-    plt.figure(figsize=(13, 6), dpi=150)
+    plt.figure(figsize=(8, 8))
     # Define a set of highly distinct colors
     distinct_colors = [
         '#1f77b4',  # Blue
@@ -53,20 +53,20 @@ def plot_tensorboard_log(directories_with_labels):
         data = pd.DataFrame({'steps': steps, 'values': values})
 
         # Calculate the exponential moving average
-        smoothing_factor = 0.05  # You can adjust the smoothing factor as needed
+        smoothing_factor = 0.02  # You can adjust the smoothing factor as needed
         data['ema'] = data['values'].ewm(alpha=smoothing_factor).mean()
 
         # Get the color for this graph
         color = distinct_colors[idx % len(distinct_colors)]
 
         # Plot the original data
-        plt.plot(data['steps'], data['values'], alpha=0.3, color=color)# label=f'Original Data ({label})'
+        # plt.plot(data['steps'], data['values'], alpha=0.3, color=color)# label=f'Original Data ({label})'
 
         # Plot the exponential moving average
         plt.plot(data['steps'], data['ema'], label=f'Smoothed Data ({label})', color=color)
 
     # Set plot title and labels
-    plt.title('Fully Connected VS No Connections Logs VS 1T Self-Connection')
+    plt.title('Original PPO Pusher VS Self-Connecting VS FC VS Random Edges')
     plt.xlabel('Steps')
     plt.ylabel('Reward')
     plt.legend()
@@ -78,10 +78,14 @@ def plot_tensorboard_log(directories_with_labels):
 if __name__ == "__main__":
     # Specify the list of directories and their corresponding labels
     directories_with_labels = [
-        ("./runs/Graph_Pusher-FC-v4__1__1716055621/", "Fully Connected Graph Pusher"),
-        ("./runs/Graph_Pusher-No-Conn-v4__1__1716319048/", "No Connections Graph Pusher"),
-        # ("./runs/Pusher-v4__1__1715796811/", "Original PPO Pusher"),
-        ("./runs/Graph_Pusher-v4-1T-SelfConn__1__1716406113/", "Self-Connecting, 1 Timestep Graph Pusher")
+        ("./runs/Pusher-v4__1_PPO_0__1717657993/", "Original PPO Pusher"),
+        # ("./runs/Pusher-v4_GNN_Self-Connected_1__1__1717656676/", "Self-Connecting Graph Pusher"),
+        ("./runs/Pusher-v4_GNN_FC_1__1__1717641772/", "FC Graph Pusher"),
+        ("./runs/Pusher-v4_GNN_Random_1__1__1717662562/", "Random Graph Pusher"),
+        # ("./runs/Pusher-v4__1_PPO_0__1717657993/", "Original PPO Pusher"),
+        # ("./runs/Pusher-v4_GNN_Self-Connected_1__1__1717656676/", "Self-Connecting Graph Pusher"),
+        ("./runs/Pusher-v4_GNN_sl_FC_1__1__1717697490/", "FC No sl Graph Pusher"),
+        ("./runs/Pusher-v4_GNN_sl_Random_1__1__1717697611/", "Random No sl Graph Pusher")
     ]
     
     # Plot the TensorBoard log data

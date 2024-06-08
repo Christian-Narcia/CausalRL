@@ -28,7 +28,7 @@ def process_event_file(event_file, max_steps):
     # Create a pandas DataFrame
     return pd.DataFrame({'steps': steps, 'values': values})
 
-def plot_tensorboard_logs(runs_dir, max_steps=500000):
+def plot_tensorboard_logs(runs_dir, max_steps=300000):
     plt.figure(figsize=(8, 8))
     all_data = []
 
@@ -56,22 +56,22 @@ def plot_tensorboard_logs(runs_dir, max_steps=500000):
     combined_data.columns = combined_data.columns.droplevel(0)
 
     # Apply moving average to min and max values
-    window_length = min(len(combined_data), 101)  # Choose an appropriate window length
+    window_length = min(len(combined_data), 50)  # Choose an appropriate window length # pusher 101 
     combined_data['min_smooth'] = savgol_filter(combined_data['min'], window_length, 3)
     combined_data['max_smooth'] = savgol_filter(combined_data['max'], window_length, 3)
 
     # Calculate the exponential moving average
-    smoothing_factor = 0.03  # You can adjust the smoothing factor as needed
+    smoothing_factor = 0.002  # You can adjust the smoothing factor as needed (pusher 0.03, cartpole 0.01)
     combined_data['ema'] = combined_data['mean'].ewm(alpha=smoothing_factor).mean()
 
     # Plot the exponential moving average
-    plt.plot(combined_data.index, combined_data['ema'], color='Purple', label='Smoothed Average(Original PPO Pusher)')
+    plt.plot(combined_data.index, combined_data['ema'], color='Purple', label='Smoothed Average(Original PPO CartPole)')
 
     # Fill the area between smoothed min and max
     plt.fill_between(combined_data.index, combined_data['min_smooth'], combined_data['max_smooth'], color='Purple', alpha=0.3)
 
     # Set plot title and labels
-    plt.suptitle('PPO Pusher (100 Runs)', fontsize=14)
+    plt.suptitle('PPO CartPole (100 Runs)', fontsize=14)
     plt.title('lr: 0.0003, mini batch: 32, num steps: 2048', fontsize=12)
     plt.xlabel('Steps',fontsize=10)
     plt.ylabel('Reward',fontsize=10)
@@ -90,7 +90,7 @@ def plot_tensorboard_logs(runs_dir, max_steps=500000):
 
 if __name__ == "__main__":
     # Specify the directory containing your TensorBoard event files
-    runs_dir = "./runsPusherPPO/"
+    runs_dir = "./runsCartPolePPO/"
     
     # Ensure the directory exists
     if not os.path.exists(runs_dir):
