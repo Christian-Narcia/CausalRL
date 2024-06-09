@@ -4,6 +4,8 @@ import os
 import random
 import time
 from distutils.util import strtobool
+from itertools import permutations
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 import gymnasium as gym
 import numpy as np
@@ -78,29 +80,10 @@ class AgentD(nn.Module):
     
 # Continuous action
 class AgentC(nn.Module):
-    def __init__(self, envs, edge_index=()):
+    def __init__(self, envs, nodesNum, edge_index=()):
         super(AgentC, self).__init__()
-        if False:
-            self.critic = nn.Sequential(
-                layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)),
-                nn.Tanh(),
-                layer_init(nn.Linear(64, 64)),
-                nn.Tanh(),
-                layer_init(nn.Linear(64, 1), std=1.0),
-            )
-            self.actor_mean = nn.Sequential(
-                layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)),
-                nn.Tanh(),
-                layer_init(nn.Linear(64, 64)),
-                nn.Tanh(),
-                layer_init(nn.Linear(64, np.prod(envs.single_action_space.shape)), std=0.01),
-            )
-        elif False:
-            self.critic = GraphCritic2(edge_index=edge_index)
-            self.actor_mean = GraphActor2(edge_index=edge_index)
-        else:
-            self.critic = GraphCritic(edge_index=edge_index)
-            self.actor_mean = GraphActor(7, edge_index=edge_index)
+        self.critic = GraphCritic(nodesNum, edge_index=edge_index)
+        self.actor_mean = GraphActor(nodesNum, 7, edge_index=edge_index)
         self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(envs.single_action_space.shape)))
 
     def get_value(self, x):
@@ -116,67 +99,135 @@ class AgentC(nn.Module):
         return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(x)
 
 class GraphActor(nn.Module):
-    def __init__(self, action_space=7, hidden_dim=64, edge_index=()):
+    def __init__(self, nodesNum, action_space=7, hidden_dim=64, edge_index=()):
         super().__init__()
-        self.conv1 = GCNConv(23, 23) # set to 1 timestep observations
-        self.layer_norm = LayerNorm(23)
+        self.conv1 = GCNConv(-1, nodesNum) # set to 1 timestep observations
+        self.layer_norm = LayerNorm(nodesNum)
         self.aggr = aggr.MedianAggregation()
         self.edge_index = edge_index
 
         # original layers
-        self.origLin1 = layer_init( nn.Linear(23, hidden_dim) )
+        self.origLin1 = layer_init( nn.Linear(nodesNum, hidden_dim) )
         self.origLin2 = layer_init( nn.Linear(hidden_dim, hidden_dim) )
         self.origLin3 = layer_init( nn.Linear(hidden_dim, action_space) )
 
     def forward(self, x):
+        # print(x, self.edge_index)
+        x = torch.reshape(x, (-1, 23, 1))
         x = self.conv1(x, self.edge_index)
         x = self.aggr(x)
         x = F.tanh( self.origLin1(x) )
         x = F.tanh( self.origLin2(x) )
-        out = self.origLin3(x)
+        # out = self.origLin3(x)
+        out = torch.reshape(self.origLin3(x), (-1, 7))
         return out
 
 class GraphCritic(nn.Module):
-    def __init__(self, hidden_dim=64, edge_index=()):
+    def __init__(self, nodesNum, hidden_dim=64, edge_index=()):
         super().__init__()
-        self.conv1 = GCNConv(23, 23)
-        self.layer_norm = LayerNorm(23)
+        self.conv1 = GCNConv(-1, nodesNum)
+        self.layer_norm = LayerNorm(nodesNum)
         self.aggr = aggr.MedianAggregation()
         self.edge_index = edge_index
 
         # original layers
-        self.origLin1 = layer_init( nn.Linear(23, hidden_dim) )
+        self.origLin1 = layer_init( nn.Linear(nodesNum, hidden_dim) )
         self.origLin2 = layer_init( nn.Linear(hidden_dim, hidden_dim) )
         self.origLin3 = layer_init( nn.Linear(hidden_dim, 1), std=1.0 )        
 
     def forward(self, x):
+        # print(x, self.edge_index)
+        x = torch.reshape(x, (-1, 23, 1))
         x = self.conv1(x, self.edge_index)
         x = self.aggr(x)
         x = F.tanh( self.origLin1(x) )
         x = F.tanh( self.origLin2(x) )
-        out = self.origLin3(x)        
+        # out = self.origLin3(x)        
+        out = torch.reshape(self.origLin3(x), (-1, 1))
         return out
 
-class GraphActor2(nn.Module):
-    def __init__(self, action_space=7, hidden_dim=64, edge_index=()):
-        super().__init__()
-        self.conv1 = GCN(23, hidden_dim, 3, action_space, dropout=0.3) # set to 1 timestep observations
-        self.edge_index = edge_index
+def graph_nodes(edgeList):
+    import matplotlib.pyplot as plt
+    from torch_geometric.utils.convert import to_networkx
+    import networkx as nx
+    from torch_geometric.data import Data
+    node_labels = ['shX', 'shY', 'shZ', 'elX', 'elY', 'wrX', 'wrY', 'shVx', 'shVy', 'shVz', 
+                   'elVx', 'elVy', 'wrVx', 'wrVy', 'fX', 'fY', 'fZ', 'oX', 'oY', 'oZ', 'gX', 'gY', 'gZ']
+    node_labels = {i:node_labels[i] for i in range(len(node_labels))}
+    zero_array = np.zeros((23, 1))
+    data = Data(x=zero_array, edge_index=edgeList)
+    print(data)
+    netGraph = to_networkx(data, to_undirected=True)
+    
+    nx.draw(netGraph, with_labels=True, node_size=500, node_color='lightblue', font_size=18, labels=node_labels)
+    plt.show()
 
 
-    def forward(self, x):
-        out = self.conv1(x, self.edge_index)
-        return out
+# Graph construction from two timesteps of observations
+def create_torch_graph_data(typeGNN, nodeNum):
+    '''
+    Pusher observation order is:
+        0 - shX     (sh is shoulder)
+        1 - shY 
+        2 - shZ
+        3 - elX     (el is elbow)
+        4 - elY
+        5 - wrX     (wr is wrist)
+        6 - wrY
+        7 - shVx    (V is velocity)
+        8 - shVy
+        9 - shVz
+        10 - elVx
+        11 - elVy
+        12 - wrVx
+        13 - wrVy
+        14 - fX     (f is finger)
+        15 - fY
+        16 - fZ
+        17 - oX     (o is object to be moved)
+        18 - oY
+        19 - oZ
+        20 - gX     (g is goal)
+        21 - gY
+        22 - gZ
+    '''
+    match typeGNN:
+        case 0:
+            return [(i, i) for i in range(nodeNum)]
+        case 1:
+            return list(permutations([i for i in range(nodeNum)], 2))
+        case 2:
+            return [(5,7),(20,10),(18,12),(3,6),(4,11),(9,11),(5,7),(17,22),(21,6),(4,2),(1,0),(10,12),(14,13),(7,3),(5,2),(14,13),
+                    (17,5),(13,12),(9,3),(0,12),(0,22),(8,15),(15,17),(8,16),(3,19)]
+        case 3:
+            return [(0,1),(1,2),(2,3),(3,4),(4,5),(5,6),(6,7),(7,8),(8,9),(9,10),(10,11),(11,12),(12,0),(13,14),(14,15),(15,16),(16,17),(17,18),(18,19),(19,20),(20,21),(21,22),(22,13)]
+        case 4:
+            return [(0,1),(1,2),(2,3),(3,4),(4,5),(5,6),(6,7),(7,8),(8,9),(9,10),(10,11),(11,12),(12,13),(13,14),(14,15),(15,16),(16,17),(17,18),(18,19),(19,20),(20,21),(21,22),(22,0)]
+        case _:
+            return "Unknown value for 'graph_type'."
+    
+    # Fully Connected
+    # edge_index = torch.tensor(edges, dtype=torch.long)
+    # edge_index = edge_index.t().contiguous()
 
-class GraphCritic2(nn.Module):
-    def __init__(self, hidden_dim=64, edge_index=()):
-        super().__init__()
-        self.conv1 = GCN(23, hidden_dim, 3, 1, dropout=0.3)
-        self.edge_index = edge_index     
+    # Empty, no connections
+    # edge_index = torch.tensor([], dtype=torch.long)
+    
+    # New Empty list 
+    # n = 44
+    # edges = [(i, i) for i in range(n + 1)]
+    # edge_index = torch.tensor(edges, dtype=torch.long).contiguous()
 
-    def forward(self, x):
-        out = self.conv1(x, self.edge_index) 
-        return out
+    # # concat all features for nodes from timestep t1 and t2
+    # temporal_features = [[d[i]] for i in range(len(d))] + [[d2[i]] for i in range(len(d))]
+        
+    # node_feature = temporal_features
+
+    # node_feature = torch.tensor(node_feature, dtype=torch.float)
+
+    # data = Data(x=node_feature, edge_index=edge_index)
+
+    # return data
 
 def main(args, envName, discrete, seed, expNum):
     # learning_rate = 0.00025
@@ -228,11 +279,21 @@ def main(args, envName, discrete, seed, expNum):
 
     minibatch_size = int(batch_size // num_minibatches)
 
+    # Types of Graphs
+    graph_types = {
+    0: "Self-Connected",
+    1: "FC",
+    2: "Random",
+    3: "2-Loops",
+    4: "Circle"
+    }
+    graph_type = 4
+
     
     
     
 
-    run_name = f"{envName}__{seed}__{expNum}__{int(time.time())}"
+    run_name = f"{envName}_GNN_1NormFalse_{graph_types[graph_type]}_{seed}__{expNum}__{int(time.time())}"
 
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
@@ -257,11 +318,16 @@ def main(args, envName, discrete, seed, expNum):
 
         agent = AgentD(envs).to(device)
     else:
-        assert isinstance(envs.single_action_space, gym.spaces.Box), "only discrete action space is supported"
-
-        edges = torch.tensor([(i, i) for i in range(23)], dtype=torch.long).to(device) #torch.tensor(list(permutations([i for i in range(46)], 2)), dtype=torch.long).to(device)
+        assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
+        nodeNum = 23
+        # print(create_torch_graph_data(graph_type,nodeNum))
+        edges = torch.tensor(create_torch_graph_data(graph_type,nodeNum), dtype=torch.long).to(device)
+        # edges = torch.tensor([(i, i) for i in range(23)], dtype=torch.long).to(device) #torch.tensor(list(permutations([i for i in range(46)], 2)), dtype=torch.long).to(device)
         EDGE_INDEX = edges.t().contiguous()
-        agent = AgentC(envs, EDGE_INDEX).to(device)
+        graph_nodes(edges.t())
+        print(EDGE_INDEX.shape)
+        # exit()
+        agent = AgentC(envs, nodeNum,EDGE_INDEX).to(device)
 
     # eps 1e-5 from orinial implementation
     optimizer = optim.Adam(agent.parameters(), lr=learning_rate, eps=1e-5)
@@ -317,14 +383,6 @@ def main(args, envName, discrete, seed, expNum):
                         writer.add_scalar("charts/episodic_return", item["episode"]["r"], global_step)
                         writer.add_scalar("charts/episodic_length", item["episode"]["l"], global_step)
                         break
-
-            # for item in info:
-            #     print('-',item)
-            #     if "episode" in item.keys():
-            #         print(f"global_step={global_step}, episodic_return={item['episode']['r']}")
-            #         writer.add_scalar("charts/episodic_return", item["episode"]["r"], global_step)
-            #         writer.add_scalar("charts/episodic_length", item["episode"]["l"], global_step)
-            #         break
 
         # bootstrap value if not done
         with torch.no_grad():
@@ -463,17 +521,17 @@ if __name__ == "__main__":
     seed = 1 
 
     # Uncomment and comment out MULTIPROCESSING with for single run
-    # expNum = 1
-    # main(args, envName, discrete, seed, expNum)
+    expNum = 1
+    main(args, envName, discrete, seed, expNum)
 
 
     
     # FOR MULTIPROCESSING 
-    totalRuns = 1
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        futures = [executor.submit(main, args, envName, discrete, seed, expNum) for expNum in range(totalRuns)]
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                future.result()  # Retrieve result or propagate exception
-            except Exception as e:
-                print(f"An experiment failed with error: {e}")
+    # totalRuns = 1
+    # with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+    #     futures = [executor.submit(main, args, envName, discrete, seed, expNum) for expNum in range(totalRuns)]
+    #     for future in concurrent.futures.as_completed(futures):
+    #         try:
+    #             future.result()  # Retrieve result or propagate exception
+    #         except Exception as e:
+    #             print(f"An experiment failed with error: {e}")
