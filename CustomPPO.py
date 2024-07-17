@@ -184,7 +184,7 @@ def main(args, envName, discrete, seed, expNum):
 
         agent = AgentD(envs).to(device)
     else:
-        assert isinstance(envs.single_action_space, gym.spaces.Box), "only discrete action space is supported"
+        assert isinstance(envs.single_action_space, gym.spaces.Box), "only Continuous action space is supported"
 
         agent = AgentC(envs).to(device)
 
